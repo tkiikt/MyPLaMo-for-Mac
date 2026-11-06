@@ -1,0 +1,22 @@
+実行日: 2026-11-06 JST
+環境: Apple M5 / macOS 27.2 / llama-server 0.9.0 build 12110
+モデル: Models/plamo-3-translate-0.8b-Q4_K_M.gguf
+
+実行コマンド:
+swiftc Sources/LocalTranslate/InferenceEngine.swift Tests/InferenceSmoke.swift -o /tmp/localtranslate-inference-smoke
+/tmp/localtranslate-inference-smoke Models/plamo-3-translate-0.8b-Q4_K_M.gguf
+
+実行結果 (exit 0):
+PASS GPU ja→en (1.15 s): The meeting has been rescheduled for next Monday.
+PASS GPU en→ja: プロジェクトダッシュボードを開いてください。
+PASS CPU en→ja: このシステムは便利だ。
+PASS cancellation
+PASS recovery after cancellation: おはようございます。
+PASS cancellation during streaming
+PASS recovery after streaming cancellation: ありがとうございます。
+ALL INFERENCE SMOKE TESTS PASSED
+
+補足: 初回の日英時間はモデルロードを含む。キャンセルはモデル切替・読み込み中に実行し、
+ワーカープロセス停止後に新規ロード・翻訳が成功することを確認した。
+追加で実際に訳文がストリーミングされ始めた後のキャンセルと再翻訳も確認した。
+このハーネスはアプリの InferenceEngine.swift を直接コンパイルして呼び出している。
