@@ -183,6 +183,9 @@ import Combine
               text.utf16.count <= 2000 else {
             sendJSON(["error": "文章を短くしてください（最大2,000文字）。"], final: true); return
         }
+        if let version = request["protocolVersion"], (version as? Int) != 1 {
+            sendJSON(["error": "本体と拡張機能の通信バージョンが対応していません。両方を更新してください。"], final: true); return
+        }
         setTimeout(seconds: 480)
         heartbeat = Task { [weak self] in
             while !Task.isCancelled {
@@ -203,7 +206,9 @@ import Combine
         }
     }
     func sendJSON(_ object: [String: Any], final: Bool = false) {
-        guard !stopped, let data = try? JSONSerialization.data(withJSONObject: object) else { return }
+        var reply = object
+        reply["server"] = ["platform": "macos", "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.1", "protocolVersion": 1]
+        guard !stopped, let data = try? JSONSerialization.data(withJSONObject: reply) else { return }
         if final { heartbeat?.cancel(); timeout?.cancel() }
         sendFrame(data, opcode: 1) { [weak self] in if final { self?.close(code: 1000) } }
     }

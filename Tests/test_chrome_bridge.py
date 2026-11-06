@@ -46,14 +46,21 @@ if __name__=='__main__':
     for origin,path,status in [('https://evil.example','/translate',b'403'),(ORIGIN,'/wrong',b'404'),('', '/translate',b'403')]:
         s,h=connect(origin,path); assert status in h,h; s.close()
     print('PASS origin/path rejection')
-    assert request('Hello')[-1]=={'translation':'訳:Hello'}
+    assert request('Hello')[-1]['translation']=='訳:Hello'
     assert 'error' in request('x'*2001)[-1]
     print('PASS protocol and input bounds')
     s,h=connect(); send(s,b'{"text":',final=False); send(s,b'"Hello"}',opcode=0)
-    assert json.loads(receive(s)[1])=={'translation':'訳:Hello'}; s.close()
+    assert json.loads(receive(s)[1])['translation']=='訳:Hello'; s.close()
     print('PASS fragmented message')
     s,h=connect(); send(s,b'ping',opcode=9); assert receive(s)==(10,b'ping'); s.close()
     s,h=connect(); send(s,b'{"text":"Hi"}',masked=False); assert receive(s)[0]==8; s.close()
     print('PASS ping and unmasked rejection')
-    replies=request('slow'); assert replies[0]=={'working':True}; assert replies[-1]=={'translation':'訳:slow'}
+    replies=request('slow'); assert replies[0]['working'] is True; assert replies[-1]['translation']=='訳:slow'
     print('PASS heartbeat and response')
+
+    assert request('Hello')[-1]['server']=={'platform':'macos','appVersion':'0.2.1','protocolVersion':1}
+    for version in [1, 2]:
+        s,h=connect(); send(s,json.dumps({'text':'Hello','protocolVersion':version}))
+        reply=json.loads(receive(s)[1]); s.close()
+        assert ('translation' in reply) if version==1 else ('error' in reply)
+    print('PASS server identity and protocol negotiation')
