@@ -1,0 +1,12 @@
+These license texts supplement the notices retained in the bundled packages.
+
+tokenizers 0.23.3:
+https://raw.githubusercontent.com/huggingface/tokenizers/v0.23.3/LICENSE
+
+sentencepiece 0.2.3:
+https://raw.githubusercontent.com/google/sentencepiece/v0.2.3/LICENSE
+
+PLaMo Community License (Japanese and English):
+Included from the official downloaded model's LICENSE/ja and LICENSE/en.
+https://huggingface.co/pfnet/plamo-3-translate-0.8b-MLX-4bit
+Model weights are not included in this application distribution.
