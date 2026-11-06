@@ -2,6 +2,8 @@
 
 PLaMo 3 Translateの公式MLX-4bitモデルを使う、SwiftUI / AppKit製のmacOSネイティブ翻訳アプリです。Built with PLaMo。モデル取得後の翻訳はMac内で完結します。
 
+Windows版は [MyPLaMo](https://github.com/tkiikt/MyPLaMo)
+
 ## ダウンロード
 
 [最新版のダウンロード](https://github.com/tkiikt/MyPLaMo-for-Mac/releases/latest)
