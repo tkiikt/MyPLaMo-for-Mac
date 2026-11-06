@@ -43,175 +43,153 @@ struct PromptBuilder {
     }
 }
 
-@MainActor
-final class InferenceEngine: ObservableObject {
-    @Published private(set) var status = "モデル未読み込み"
+@MainActor final class InferenceEngine: ObservableObject {
+    @Published private(set) var status = "MLXモデル未読み込み"
     @Published private(set) var isBusy = false
     @Published private(set) var output = ""
     private var process: Process?
-    private var logHandle: FileHandle?
-    private var loadedConfiguration: String?
-    private var port = 0
-    private var apiKey = ""
-    private var session: URLSession?
+    private var inputPipe: Pipe?
+    private var outputPipe: Pipe?
+    private var reader: Task<Void, Never>?
+    private var timer: Task<Void, Never>?
+    private var pending: CheckedContinuation<String, Error>?
+    private var requestID: String?
     private var generation = UUID()
+    private var bytes = Data()
+    private var diagnostic: FileHandle?
+    private var diagnosticURL: URL?
+    private var activeGPU = true
 
     func translate(text: String, source: String? = nil, target: String, style: String? = nil, modelURL: URL, useGPU: Bool) async throws -> String {
         guard !isBusy else { throw TranslationError.invalidInput("翻訳が終わるまでお待ちください。") }
-        let prompt = try PromptBuilder.make(text: text, source: source, target: target, style: style)
-        let operation = UUID()
-        generation = operation
-        isBusy = true
-        output = ""
-        defer { if generation == operation { isBusy = false } }
-        do {
-            try await ensureLoaded(modelURL: modelURL, useGPU: useGPU, operation: operation)
-            try checkOperation(operation)
-            status = "翻訳中…"
-            let tokens = try await jsonRequest(path: "/tokenize", body: ["content": prompt, "add_special": true])
-            try checkOperation(operation)
-            guard let tokenList = tokens["tokens"] as? [Any] else { throw TranslationError.server("入力の長さを確認できませんでした。") }
-            guard tokenList.count <= 8000 else { throw TranslationError.invalidInput("原文がモデルの入力上限を超えています。短く分けてください。") }
-            var request = makeRequest(path: "/v1/completions")
-            request.httpBody = try JSONSerialization.data(withJSONObject: ["model": "plamo-3-translate", "prompt": prompt, "temperature": 0, "max_tokens": 8192, "stream": true, "stop": ["<|plamo:tag|>", "<|plamo:bos|>"]])
-            guard let session else { throw CancellationError() }
-            let (bytes, response) = try await session.bytes(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                throw TranslationError.server("翻訳エンジンがリクエストを受け付けませんでした。")
-            }
-            var finished = false
-            for try await line in bytes.lines {
-                try checkOperation(operation)
-                guard line.hasPrefix("data:") else { continue }
-                let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
-                if payload == "[DONE]" { break }
-                guard let data = payload.data(using: .utf8), let item = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-                if let error = item["error"] as? [String: Any] { throw TranslationError.server(error["message"] as? String ?? "翻訳に失敗しました。") }
-                guard let choices = item["choices"] as? [[String: Any]], let choice = choices.first else { continue }
-                if let text = choice["text"] as? String { output += text }
-                if let reason = choice["finish_reason"] as? String {
-                    if reason == "length" { throw TranslationError.truncated }
-                    finished = reason == "stop"
-                }
-            }
-            try checkOperation(operation)
-            guard finished else { throw TranslationError.server("翻訳との接続が途中で終了しました。表示中の訳文は未完です。") }
-            output = output.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !output.isEmpty else { throw TranslationError.emptyResult }
-            status = useGPU ? "準備完了 · GPU" : "準備完了 · CPU"
-            return output
-        } catch {
-            if generation == operation {
-                if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
-                    stopProcess()
-                    session?.invalidateAndCancel()
-                    session = nil
-                    status = "キャンセルしました"
-                } else {
-                    status = "翻訳できませんでした"
-                }
-            }
-            throw error
-        }
-    }
-
-    func cancel() {
-        generation = UUID()
-        session?.invalidateAndCancel()
-        session = nil
-        // Terminating the worker guarantees that cancelled GPU inference stops too.
-        stopProcess()
-        isBusy = false
-        status = "キャンセルしました"
-    }
-
-    func shutdown() {
-        cancel()
-        status = "モデル未読み込み"
-    }
-
-    private func checkOperation(_ operation: UUID) throws {
         try Task.checkCancellation()
-        guard operation == generation else { throw CancellationError() }
-    }
-
-    private func ensureLoaded(modelURL: URL, useGPU: Bool, operation: UUID) async throws {
-        let configuration = modelURL.standardizedFileURL.path + (useGPU ? ":gpu" : ":cpu")
-        if loadedConfiguration == configuration, process?.isRunning == true, session != nil { return }
-        stopProcess()
-        session?.invalidateAndCancel()
-        let sessionConfig = URLSessionConfiguration.ephemeral
-        sessionConfig.timeoutIntervalForRequest = 300
-        sessionConfig.timeoutIntervalForResource = 600
-        sessionConfig.connectionProxyDictionary = [:]
-        session = URLSession(configuration: sessionConfig)
-        guard FileManager.default.fileExists(atPath: modelURL.path) else { throw TranslationError.invalidInput("モデルファイルが見つかりません。モデル管理からダウンロードしてください。") }
-        let candidates = [Bundle.main.resourceURL?.appendingPathComponent("engine/llama-server").path, "/opt/homebrew/bin/llama-server", "/usr/local/bin/llama-server"].compactMap { $0 }
-        guard let executable = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { throw TranslationError.engineMissing }
-        status = "モデルを読み込み中…"
-        port = Int.random(in: 49152...65535)
-        apiKey = UUID().uuidString + UUID().uuidString
-        let worker = Process()
-        worker.executableURL = URL(fileURLWithPath: executable)
-        worker.arguments = ["-m", modelURL.path, "--host", "127.0.0.1", "--port", String(port), "--api-key", apiKey, "--alias", "plamo-3-translate", "-c", "16384", "-np", "1", "-ngl", useGPU ? "99" : "0", "--no-webui"]
-        worker.standardInput = FileHandle.nullDevice
-        // Server diagnostics are kept out of a pipe so a full pipe cannot deadlock loading.
-        let logURL = FileManager.default.temporaryDirectory.appendingPathComponent("LocalTranslate-engine-\(UUID().uuidString).log")
-        FileManager.default.createFile(atPath: logURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
-        logHandle = try FileHandle(forWritingTo: logURL)
-        worker.standardOutput = logHandle
-        worker.standardError = logHandle
-        process = worker
-        try worker.run()
-        defer { try? FileManager.default.removeItem(at: logURL) }
-        let deadline = Date().addingTimeInterval(180)
-        while Date() < deadline {
-            try checkOperation(operation)
-            guard worker.isRunning else {
-                stopProcess()
-                throw TranslationError.startup("モデルを読み込めませんでした。空きメモリ、モデルファイル、翻訳エンジンの対応状況を確認してください。")
-            }
-            var request = makeRequest(path: "/health")
-            request.httpMethod = "GET"
-            request.timeoutInterval = 2
-            if let session, let (_, response) = try? await session.data(for: request), (response as? HTTPURLResponse)?.statusCode == 200 {
-                try checkOperation(operation)
-                loadedConfiguration = configuration
-                return
-            }
-            try await Task.sleep(nanoseconds: 200_000_000)
+        let prompt = try PromptBuilder.make(text: text, source: source, target: target, style: style)
+        guard FileManager.default.fileExists(atPath: modelURL.appendingPathComponent(".myplamo-verified.json").path) else {
+            throw TranslationError.invalidInput("MLXモデル一式をモデル画面で検証・ダウンロードしてください。GGUFモデルは使用できません。")
         }
-        stopProcess()
-        throw TranslationError.startup("モデルの読み込みがタイムアウトしました。小さなモデル、または CPU モードをお試しください。")
+        try startWorker()
+        let id = UUID().uuidString
+        requestID = id; activeGPU = useGPU; isBusy = true; output = ""; status = "MLXモデルを準備中…"
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                pending = continuation
+                do {
+                    let request: [String: Any] = ["id": id, "prompt": prompt, "model_path": modelURL.path, "max_tokens": 8192, "device": useGPU ? "gpu" : "cpu"]
+                    var data = try JSONSerialization.data(withJSONObject: request); data.append(10)
+                    try inputPipe?.fileHandleForWriting.write(contentsOf: data)
+                    timer = Task { [weak self] in
+                        do { try await Task.sleep(for: .seconds(480)) } catch { return }
+                        guard let self, self.requestID == id else { return }
+                        self.finish(.failure(TranslationError.server("翻訳がタイムアウトしました。文章を短くするか、小さいモデルを選んでください。")))
+                        self.stopWorker()
+                    }
+                } catch { finish(.failure(error)); stopWorker() }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                if self?.requestID == id { self?.cancel() }
+            }
+        }
     }
 
-    private func makeRequest(path: String) -> URLRequest {
-        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(path)")!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        return request
+    private func startWorker() throws {
+        if process?.isRunning == true { return }
+        stopWorker()
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let resources = Bundle.main.resourceURL
+        let candidates: [(URL, URL)] = [
+            (resources?.appendingPathComponent("runtime/bin/python3"), resources?.appendingPathComponent("Runtime/mlx_worker.py")),
+            (root.appendingPathComponent(".venv/bin/python"), root.appendingPathComponent("Runtime/mlx_worker.py"))
+        ].compactMap { python, worker in guard let python, let worker else { return nil }; return (python, worker) }
+        guard let (python, script) = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.0.path) && FileManager.default.fileExists(atPath: $0.1.path) }) else { throw TranslationError.engineMissing }
+        let worker = Process(), input = Pipe(), output = Pipe()
+        let instance = UUID(); generation = instance
+        worker.executableURL = python
+        worker.arguments = ["-u", script.path]
+        var env = ProcessInfo.processInfo.environment
+        env["PYTHONUNBUFFERED"] = "1"; env["PYTHONNOUSERSITE"] = "1"; env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["HF_HUB_OFFLINE"] = "1"; env["TRANSFORMERS_OFFLINE"] = "1"; env["HF_HUB_DISABLE_TELEMETRY"] = "1"
+        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("MyPLaMo", isDirectory: true)
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        env["HF_HOME"] = cache.appendingPathComponent("huggingface").path
+        env["NUMBA_CACHE_DIR"] = cache.appendingPathComponent("numba").path
+        env.removeValue(forKey: "PYTHONHOME"); env.removeValue(forKey: "PYTHONPATH")
+        if let resources, python.path.hasPrefix(resources.path + "/runtime/") { env["PYTHONHOME"] = resources.appendingPathComponent("runtime").path }
+        worker.environment = env
+        worker.currentDirectoryURL = script.deletingLastPathComponent()
+        let log = FileManager.default.temporaryDirectory.appendingPathComponent("MyPLaMo-MLX-\(UUID().uuidString).log")
+        FileManager.default.createFile(atPath: log.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        diagnostic = try FileHandle(forWritingTo: log); diagnosticURL = log
+        worker.standardInput = input; worker.standardOutput = output; worker.standardError = diagnostic
+        let stream = AsyncStream<Data> { continuation in
+            output.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty { continuation.finish() } else { continuation.yield(data) }
+            }
+        }
+        process = worker; inputPipe = input; outputPipe = output
+        worker.terminationHandler = { [weak self] process in
+            Task { @MainActor in
+                guard let self, self.generation == instance else { return }
+                // Pipe EOF may be delivered after termination; the reader drains all
+                // complete messages before reporting an unexpected worker exit.
+                if process.terminationStatus != 0 {
+                    self.finish(.failure(TranslationError.startup("MLX処理が終了しました。メモリの空きとモデルを確認してください。")))
+                    self.stopWorker()
+                }
+            }
+        }
+        try worker.run()
+        reader = Task { [weak self] in
+            for await chunk in stream {
+                guard let self, self.generation == instance else { return }
+                self.bytes.append(chunk)
+                while let end = self.bytes.firstIndex(of: 10) {
+                    let line = Data(self.bytes[..<end]); self.bytes.removeSubrange(...end)
+                    self.consume(line)
+                }
+                if self.bytes.count > 1_000_000 { self.finish(.failure(TranslationError.server("MLXから不正な応答を受信しました。"))); self.stopWorker(); return }
+            }
+            guard let self, self.generation == instance else { return }
+            if self.pending != nil { self.finish(.failure(TranslationError.server("MLXとの接続が終了しました。再度翻訳してください。"))) }
+            self.stopWorker()
+        }
     }
-
-    private func jsonRequest(path: String, body: [String: Any]) async throws -> [String: Any] {
-        guard let session else { throw CancellationError() }
-        var request = makeRequest(path: path)
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await session.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200, let result = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw TranslationError.server("翻訳エンジンから正しい応答を受信できませんでした。") }
-        return result
+    private func consume(_ line: Data) {
+        guard let item = try? JSONSerialization.jsonObject(with: line) as? [String: Any], let id = item["id"] as? String, id == requestID else { return }
+        switch item["type"] as? String {
+        case "token":
+            output += item["text"] as? String ?? ""; status = "MLXで翻訳中…"
+        case "done":
+            if item["finish_reason"] as? String == "length" { finish(.failure(TranslationError.truncated)); return }
+            guard item["finish_reason"] as? String == "stop" else { finish(.failure(TranslationError.server("訳文が完了しませんでした。"))); return }
+            output = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            finish(output.isEmpty ? .failure(TranslationError.emptyResult) : .success(output))
+        case "error": finish(.failure(TranslationError.server("MLX翻訳エラー: \(item["message"] as? String ?? "不明なエラー")")))
+        default: break
+        }
     }
-
-    private func stopProcess() {
+    private func finish(_ result: Result<String, Error>) {
+        timer?.cancel(); timer = nil
+        let continuation = pending; pending = nil; requestID = nil; isBusy = false
+        switch result {
+        case .success: status = activeGPU ? "準備完了 · MLX / Apple GPU" : "準備完了 · MLX / CPU"
+        case .failure(let error): status = error is CancellationError ? "翻訳を中止しました" : "翻訳できませんでした"
+        }
+        continuation?.resume(with: result)
+    }
+    func cancel() { finish(.failure(CancellationError())); stopWorker() }
+    func shutdown() { cancel(); status = "MLXモデル未読み込み" }
+    private func stopWorker() {
+        generation = UUID(); reader?.cancel(); reader = nil
+        outputPipe?.fileHandleForReading.readabilityHandler = nil
+        try? inputPipe?.fileHandleForWriting.close()
         if let worker = process, worker.isRunning {
             worker.terminate()
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-                if worker.isRunning { kill(worker.processIdentifier, SIGKILL) }
-            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { if worker.isRunning { kill(worker.processIdentifier, SIGKILL) } }
         }
-        process = nil
-        loadedConfiguration = nil
-        try? logHandle?.close()
-        logHandle = nil
+        process = nil; inputPipe = nil; outputPipe = nil; bytes = Data()
+        try? diagnostic?.close(); diagnostic = nil
+        if let url = diagnosticURL { try? FileManager.default.removeItem(at: url) }; diagnosticURL = nil
     }
 }

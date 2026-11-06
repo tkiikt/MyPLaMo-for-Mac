@@ -4,7 +4,7 @@ import Foundation
 struct InferenceSmoke {
     @MainActor
     static func main() async {
-        let model = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "Models/plamo-3-translate-0.8b-Q4_K_M.gguf")
+        let model = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "ModelsMLX/plamo-3-translate-0.8b-MLX-4bit")
         let engine = InferenceEngine()
         defer { engine.shutdown() }
         do {

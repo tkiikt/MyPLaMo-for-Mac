@@ -20,7 +20,7 @@ import ServiceManagement
         NSApp.setActivationPolicy(.regular)
         let menu = NSMenu()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "LocalTranslateについて", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: "MyPLaMo for Macについて", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         let settingsItem = appMenu.addItem(withTitle: "設定…", action: #selector(showSettings), keyEquivalent: ",")
         settingsItem.target = self
         appMenu.addItem(.separator())
@@ -40,13 +40,13 @@ import ServiceManagement
         let appearance = UserDefaults.standard.string(forKey: "appearance") ?? "system"
         NSApp.appearance = appearance == "system" ? nil : NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 680), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "LocalTranslate"
+        window.title = "MyPLaMo for Mac"
         window.minSize = NSSize(width: 820, height: 540)
         window.contentView = NSHostingView(rootView: MainView(state: state, models: state.models, engine: state.engine, integration: integration))
         window.isReleasedWhenClosed = false
         window.center(); self.window = window
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName: "character.bubble", accessibilityDescription: "LocalTranslate")
+        item.button?.image = NSImage(systemSymbolName: "character.bubble", accessibilityDescription: "MyPLaMo for Mac")
         let statusMenu = NSMenu()
         statusMenu.addItem(withTitle: "翻訳画面を開く", action: #selector(showWindow), keyEquivalent: "")
         statusMenu.addItem(withTitle: "クリップボードを翻訳", action: #selector(translateClipboard), keyEquivalent: "")
@@ -80,7 +80,7 @@ import ServiceManagement
     @objc func quit() { NSApp.terminate(nil) }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        state.cancel(); state.engine.shutdown()
+        state.bridge.stop(); state.cancel(); state.engine.shutdown()
         DispatchQueue.main.async { self.state.models.pause { sender.reply(toApplicationShouldTerminate: true) } }
         return .terminateLater
     }

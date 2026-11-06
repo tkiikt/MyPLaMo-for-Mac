@@ -8,8 +8,8 @@ struct ModelView: View {
     @ViewState private var deletion: TranslationModel?
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack { Text("翻訳モデル").font(.title2.bold()); Spacer(); Button("完了") { dismiss() } }
-            Text("PLaMo 3 Translateの4サイズから選べます。まずは2Bがおすすめです。モデル取得後はオフラインで翻訳できます。").foregroundStyle(.secondary)
+            HStack { Text("翻訳モデル · MLX").font(.title2.bold()); Spacer(); Button("完了") { dismiss() } }
+            Text("PLaMo 3 Translateの公式MLX-4bit 4サイズから選べます。まずは2Bがおすすめです。モデル取得後はオフラインで翻訳できます。").foregroundStyle(.secondary)
             HStack {
                 Text("メモリ \(ProcessInfo.processInfo.physicalMemory / 1_073_741_824) GB").font(.caption)
                 Spacer()

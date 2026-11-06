@@ -12,7 +12,7 @@ struct MainView: View {
             HStack(spacing: 12) {
                 Image(systemName: "character.bubble.fill").font(.title).foregroundStyle(.teal)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("LocalTranslate").font(.title2.bold())
+                    Text("MyPLaMo for Mac").font(.title2.bold())
                     Label("このMacだけで翻訳", systemImage: "lock.shield").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -20,11 +20,18 @@ struct MainView: View {
                 Button { state.showModels = true } label: { Label("モデル", systemImage: "externaldrive") }.disabled(engine.isBusy)
                 Button { state.showSettings = true } label: { Image(systemName: "gearshape") }.help("設定")
             }.padding(22)
+            HStack {
+                Toggle("Chromeからの翻訳を受け付ける", isOn: Binding(get: { state.chromeEnabled }, set: { state.setChromeEnabled($0) }))
+                    .toggleStyle(.switch)
+                Text("Built with PLaMo · MLX").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+            }.padding(.horizontal, 22).padding(.bottom, 12)
+            ChromeStatusView(bridge: state.bridge)
             Divider()
             HStack(spacing: 16) {
                 languagePicker("翻訳元", selection: $state.source, automatic: true)
                 Button { state.swap() } label: { Image(systemName: "arrow.left.arrow.right") }.help("言語と文章を入れ替え")
-                    .disabled(engine.isBusy || engine.output.isEmpty)
+                    .disabled(engine.isBusy || state.output.isEmpty)
                 languagePicker("翻訳先", selection: $state.target, automatic: false)
             }.padding(.horizontal, 24).padding(.vertical, 18)
             HSplitView {
@@ -36,12 +43,12 @@ struct MainView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Text("訳文").font(.headline); Spacer()
-                        Button("コピー") { state.copy() }.disabled(engine.output.isEmpty)
-                        if state.originApp != nil { Button("元のアプリへ挿入…") { confirmInsert = true }.disabled(engine.output.isEmpty || engine.isBusy) }
+                        Button("コピー") { state.copy() }.disabled(state.output.isEmpty)
+                        if state.originApp != nil { Button("元のアプリへ挿入…") { confirmInsert = true }.disabled(state.output.isEmpty || engine.isBusy) }
                     }
                     ScrollView {
-                        Text(engine.output.isEmpty ? "翻訳結果がここに表示されます" : engine.output)
-                            .font(.system(size: 17)).foregroundStyle(engine.output.isEmpty ? .secondary : .primary)
+                        Text(state.output.isEmpty ? "翻訳結果がここに表示されます" : state.output)
+                            .font(.system(size: 17)).foregroundStyle(state.output.isEmpty ? .secondary : .primary)
                             .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 5)
                     }.frame(maxHeight: .infinity)
                     if state.target == "ja" {
@@ -52,11 +59,11 @@ struct MainView: View {
             HStack(spacing: 12) {
                 Circle().fill(models.selectedModelURL == nil ? Color.orange : Color.teal).frame(width: 7, height: 7)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(models.selectedModelURL == nil ? "モデルを選択して始めましょう" : "PLaMo 3 Translate · \(models.selectedID.uppercased()) · \(state.useGPU ? "Apple GPU" : "CPU")").font(.caption)
+                    Text(models.selectedModelURL == nil ? "モデルを選択して始めましょう" : "PLaMo 3 Translate · \(models.selectedID.uppercased()) · MLX · \(state.useGPU ? "Apple GPU" : "CPU")").font(.caption)
                     Text(engine.status).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if engine.isBusy {
+                if state.desktopBusy {
                     ProgressView().controlSize(.small)
                     Button("中止") { state.cancel() }
                 } else {
@@ -76,7 +83,7 @@ struct MainView: View {
         .confirmationDialog("\(state.originApp?.localizedName ?? "元のアプリ")に訳文を貼り付けますか？", isPresented: $confirmInsert) {
             Button("貼り付ける") {
                 guard let app = state.originApp else { return }
-                Task { if !(await integration.insert(engine.output, into: app)) { state.message = "挿入できませんでした。訳文をコピーして貼り付けてください。" } }
+                Task { if !(await integration.insert(state.output, into: app)) { state.message = "挿入できませんでした。訳文をコピーして貼り付けてください。" } }
             }
         } message: { Text("そのアプリで現在選択されている文章を置き換えます。") }
     }
@@ -105,5 +112,13 @@ struct MainView: View {
             }
             Button("履歴をすべて削除", role: .destructive) { state.clearHistory() }
         }.padding(24).frame(width: 620, height: 480)
+    }
+}
+
+struct ChromeStatusView: View {
+    @ObservedObject var bridge: ChromeBridge
+    var body: some View {
+        if let error = bridge.error { Text(error).font(.caption).foregroundStyle(.red).padding(.horizontal, 22).padding(.bottom, 8) }
+        else if bridge.isRunning { Text(bridge.status).font(.caption).foregroundStyle(.secondary).padding(.bottom, 8) }
     }
 }

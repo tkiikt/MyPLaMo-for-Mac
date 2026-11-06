@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import NaturalLanguage
+import Combine
 
 struct HistoryEntry: Codable, Identifiable {
     var id = UUID()
@@ -12,6 +13,13 @@ struct HistoryEntry: Codable, Identifiable {
 
 @MainActor final class AppState: ObservableObject {
     @Published var input = ""
+    @Published var output = ""
+    @Published var desktopBusy = false
+    @Published var chromeEnabled = false
+    let bridge = ChromeBridge()
+    private var desktopActive = false
+    private var outputSubscription: AnyCancellable?
+    lazy var queue = TranslationQueue(engine: engine)
     @Published var source = "auto"
     @Published var target = UserDefaults.standard.string(forKey: "target") ?? "ja" { didSet { UserDefaults.standard.set(target, forKey: "target") } }
     @Published var style = UserDefaults.standard.string(forKey: "style") ?? "polite" { didSet { UserDefaults.standard.set(style, forKey: "style") } }
@@ -28,17 +36,23 @@ struct HistoryEntry: Codable, Identifiable {
     var originApp: NSRunningApplication?
     let historyURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("LocalTranslate/history.json")
     init() {
+        outputSubscription = engine.$output.sink { [weak self] value in
+            guard let self, self.desktopActive else { return }; self.output = value
+        }
         if saveHistory, let data = try? Data(contentsOf: historyURL), let items = try? JSONDecoder().decode([HistoryEntry].self, from: data) { history = items }
     }
     func translate() {
-        guard !engine.isBusy else { return }
+        guard !desktopBusy else { return }
         guard let url = models.selectedModelURL else { showModels = true; message = "モデルをダウンロードまたは選択してください。"; return }
         let text = input, destination = target, origin = source, form = style, gpu = useGPU
         message = ""
         UserDefaults.standard.set(target, forKey: "target")
+        desktopBusy = true
         translationTask = Task {
+            defer { desktopActive = false; desktopBusy = false }
             do {
-                let result = try await engine.translate(text: text, source: origin == "auto" ? nil : origin, target: destination, style: form, modelURL: url, useGPU: gpu)
+                let result = try await queue.run(text: text, source: origin == "auto" ? nil : origin, target: destination, style: form, modelURL: url, useGPU: gpu, onStart: { self.desktopActive = true; self.output = "" })
+                output = result
                 if saveHistory {
                     history.insert(HistoryEntry(source: text, translation: result, target: destination), at: 0)
                     history = Array(history.prefix(100)); persistHistory()
@@ -47,15 +61,25 @@ struct HistoryEntry: Codable, Identifiable {
             catch { message = error.localizedDescription }
         }
     }
-    func cancel() { translationTask?.cancel(); engine.cancel() }
+    func cancel() { translationTask?.cancel(); if !desktopBusy { engine.cancel() } }
+    func setChromeEnabled(_ enabled: Bool) {
+        chromeEnabled = enabled
+        if enabled {
+            bridge.start { [weak self] text in
+                guard let self, self.chromeEnabled else { throw CancellationError() }
+                guard let url = self.models.selectedModelURL else { throw TranslationError.invalidInput("MyPLaMo for MacでMLXモデルを準備してください。") }
+                return try await self.queue.run(text: text, source: nil, target: "ja", style: self.style, modelURL: url, useGPU: self.useGPU)
+            }
+        } else { bridge.stop() }
+    }
     func paste() { input = NSPasteboard.general.string(forType: .string) ?? "" }
-    func copy() { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(engine.output, forType: .string) }
+    func copy() { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(output, forType: .string) }
     func swap() {
         let detected = NLLanguageRecognizer.dominantLanguage(for: input)?.rawValue ?? "en"
         let oldSource = source == "auto" ? (detected == "zh-Hans" ? "zh-hans" : detected == "zh-Hant" ? "zh-hant" : detected) : source
         guard PromptBuilder.languageCodes.contains(oldSource) else { message = "原文の言語を選択してから入れ替えてください。"; return }
         source = target; target = oldSource
-        input = engine.output
+        input = output
     }
     func persistHistory() {
         UserDefaults.standard.set(saveHistory, forKey: "saveHistory")

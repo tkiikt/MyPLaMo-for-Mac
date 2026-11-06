@@ -1,67 +1,69 @@
-# LocalTranslate for macOS
+# MyPLaMo for Mac
 
-PLaMo 3 Translateを使う、SwiftUI / AppKit製のローカル翻訳アプリです。モデル取得後は翻訳にインターネット接続を必要としません。
+PLaMo 3 Translateの公式MLX-4bitモデルを使う、SwiftUI / AppKit製のmacOSネイティブ翻訳アプリです。Built with PLaMo。モデル取得後の翻訳はMac内で完結します。
 
-## 起動
+## 起動と翻訳
 
-`dist/LocalTranslate.app` をダブルクリックしてください。現在のビルドはこのMac（Apple M5 / macOS 27.2）用です。推論エンジンはアプリ内に同梱済みです。
+`dist/MyPLaMo for Mac.app` を開いてください。推論に必要なPython・MLXはアプリに同梱しています。現在のビルドはApple Silicon / macOS 27.2以降用です。
 
-検証済みの0.8Bモデルは `Models/plamo-3-translate-0.8b-Q4_K_M.gguf` に保存しています。このMacのアプリにはこの保存先と0.8Bの選択を設定済みです。モデルはアプリ本体に同梱していません。
+このMacでは0.8Bモデルを取得・検証済みで、保存先 `ModelsMLX` とモデル選択を設定しています。別のMacでは「モデル」から取得してください。モデルは配布ZIPに含めていません。
 
-- 原文を入力して「翻訳する」、または ⌘Return。
-- ⌥⌘Tで他のアプリから呼び出し。キーは設定でT / Y / Jから変更できます。
-- 選択文の直接取得には、macOSの「プライバシーとセキュリティ → アクセシビリティ」でLocalTranslateの許可が必要です。許可がない場合も手動貼り付けで利用できます。
-- メニューバーの吹き出しから画面を再表示、クリップボード翻訳、終了ができます。ウィンドウを閉じても常駐します。
-- 「元のアプリへ挿入」は確認後、元アプリの現在の挿入位置へ訳文を貼り付けます。選択中の文字がある場合は置き換えます。
+- 原文を入力して「翻訳する」、または ⌘Return。53言語、言語自動判定、日本語の敬体・常体、逐次表示、中止に対応。
+- ⌥⌘Tで呼び出せます。設定でT / Y / Jを選択できます。
+- 選択文の取得はmacOSのアクセシビリティ許可が必要です。手動貼り付けは許可不要です。
+- メニューバーから再表示・クリップボード翻訳・終了ができます。ウィンドウを閉じても常駐します。
+- 「元のアプリへ挿入」は確認後に現在の挿入位置へ貼り付けます。
 
-## モデル管理
+## モデル
 
-「モデル」から0.8B / 2B / 8B / 31Bを選択できます。公式GGUF Q4_K_Mを使用し、容量とSHA256を公式配布元から取得します。ダウンロード後はサイズ・SHA256を照合します。
+公式コレクションの0.8B / 2B / 8B / 31BのMLX-4bitに対応。ダウンロード容量は約0.98 / 2.41 / 6.07 / 18.66 GBです。実行時には追加のメモリが必要です。
 
-- 保存先は任意のフォルダや外部ドライブに指定可能。
-- 一時停止・再開・再試行に対応。終了時もダウンロード再開情報を保存します。
-- 「保存先を選択」はそのフォルダの既存モデルを検出します。「モデルを移動」は保存済みモデルを検証付きで移動します。
-- 既存モデルの検出はファイル名とサイズによります。新規ダウンロードと移動ではSHA256も検証します。
-- モデルは同時に1つだけ使用。モデル/GPU設定の変更後、次回翻訳で読み込み直します。
-- 新規ダウンロード前に、画面からPLaMo Community Licenseを確認して同意してください。利用条件の確認や登録が必要な場合は利用者が行ってください。
+保存先変更、外部ドライブ、一時停止・再開、既存モデルの検証、モデル移動に対応します。配布元のリビジョンを固定し、重みはSHA256、その他のファイルはGit blobハッシュで照合します。公式モデルに必要なPythonコードも同じリビジョンから取得します。保存済みモデルは検証記録とファイルサイズを確認します。
 
-## 設定とプライバシー
+モデルは同時に1つだけ読み込みます。Apple GPUが標準で、設定からCPUに変更できます。入力上限は6,000文字、トークン数も検査します。出力上限に達した場合は未完の案内を表示します。モデル利用条件はダウンロード画面のPLaMo Community Licenseを確認してください。
 
-53言語、言語自動検出、日英などの双方向翻訳、日本語の敬体・常体、Apple GPU / CPU切り替え、翻訳中止、逐次表示に対応します。入力は1回6,000文字までで、実際のトークン数も検査します。出力が途中で上限に達した場合は未完の表示を出します。
+## ChromeでWeb翻訳
 
-履歴は初期状態で保存しません。有効にした場合は最大100件をこのMacだけに保存します。設定から保存を無効化、または全削除できます。言語・文体・GPU設定・モデル選択・保存先・外観・ショートカット設定は保存されます。
+Windows版の拡張機能を共通化しています。専用の連携アプリやレジストリ設定は不要です。
 
-ログイン時起動は設定から明示的に有効化します。macOS側で承認が必要になる場合があります。
+1. Macアプリを起動してモデルを選び、「Chromeからの翻訳を受け付ける」をオンにします。
+2. Chromeの `chrome://extensions` でデベロッパーモードをオンにし、「パッケージ化されていない拡張機能を読み込む」から `chrome/extension` を選びます。このMacでは読み込み済みです。
+3. ページ上で右クリックし「MyPLaMoでWEB全体を翻訳」、または拡張アイコンを押します。
+4. 「原文に戻す」または拡張アイコンで元に戻せます。
 
-設定はアプリのUserDefaults、履歴とモデルメタデータは `~/Library/Application Support/LocalTranslate` に保存します。モデル情報の取得・ダウンロードはHugging Faceへ通信します。翻訳の原文・訳文は外部APIへ送信しません。推論サーバーは認証付きで127.0.0.1だけに接続します。
+本文・リンク・ボタン・後から追加された文章を日本語に翻訳します。PDF、画像の文字、埋め込みフレーム、コード、入力欄は対象外です。Chrome内部ページなど、拡張が動けないページでは利用できません。
 
-## 開発・再ビルド
+本体と拡張は選択中のモデル・GPU・文体を共有し、同じエンジンで順番に処理します。ページ翻訳で本体の入力・結果・履歴は書き換えません。受付は起動ごとにオフで、オンの間だけ127.0.0.1:47832で待ち受けます。拡張IDと接続先はWindows版と共通です。
 
-Swift 6.4 / Command Line Tools、Homebrewが導入済みの環境で開発しています。Xcode本体は不要です。
+## 設定とデータ
+
+履歴保存は初期状態でオフです。有効時は最大100件をこのMacに保存します。原文・訳文を外部APIへ送りません。Hugging Faceへの通信はモデル情報取得・ダウンロードに使用します。
+
+既存設定との互換性のため、設定IDは `jp.localtranslate.mac`、履歴は `~/Library/Application Support/LocalTranslate` を引き継いでいます。MLXの管理情報は `~/Library/Application Support/MyPLaMo` を使用します。旧GGUFモデルは削除しませんが、新版では使用しません。
+
+## 開発と検証
+
+Command Line Tools / Swift 6.4、Homebrew Python 3.13で開発しています。Xcode本体は不要です。
 
 ```sh
-brew install llama.cpp
+Scripts/setup-mlx.sh
 Scripts/build-app.sh
-Scripts/test.sh
-Scripts/test.sh Models/plamo-3-translate-0.8b-Q4_K_M.gguf
+Scripts/test.sh ModelsMLX/plamo-3-translate-0.8b-MLX-4bit
+node --test chrome/tests/bridge.test.cjs
 ```
 
-`Scripts/package-engine.sh` はHomebrewからエンジンと依存ライブラリ・ライセンスをコピーし、アプリ内の参照に変更して署名します。エンジン更新時は `REBUILD_ENGINE=1 Scripts/build-app.sh`。今回の同梱エンジンは llama.cpp 0.9.0 / build 12110 / cd959bae9。HomebrewのバイナリがmacOS 27.2を要求するため、完成アプリも27.2以上として設定しています。ソース側はmacOS 14のAPIを基準にしていますが、旧OSでの動作は未検証です。
+`Scripts/package-mlx.sh 新しい出力フォルダ` で推論環境を再作成できます。依存バージョンは `Runtime/requirements-mlx.lock` に固定しています。ビルドは既存のアプリ内runtimeを再利用するため、依存更新時はアプリ内のruntimeを再作成したものに置き換え、再ビルドしてください。
 
-CLTのSDKには新しいSwiftUI Stateマクロのプラグインが含まれないため、`ViewState`型エイリアスで既存のproperty wrapperを使用します。CLTにはXCTestもないため、通常の検証は `Scripts/test.sh` で実行します。`swift test` はXcodeのXCTest環境が必要です。
+確認済み：0.8Bの取得・中断/再開・ハッシュ照合、GPU日英/英日、CPU英日、読み込み中/生成中の中止と再翻訳、同梱環境での画面操作、Chromeのページ翻訳・動的追加・原文復帰・受付オフ時の案内、WebSocketの不正接続拒否とハートビート、拡張の5項目、プロンプトの13項目。
 
-## 確認済み・未確認
+2B / 8B / 31Bは一覧・取得機能に対応していますが実推論は未検証です。Windows実機での今回の拡張更新の確認も未実施です。選択文取得・直接挿入・ログイン時起動・実キーボードのグローバルショートカットは、権限や通常操作での追加確認が残ります。
 
-確認済み：リリースビルド、署名検証、同梱エンジンでの画面からの英日翻訳、0.8Bのダウンロード中断/再開・SHA256照合、GPU日英/英日、CPU英日、読み込み中・生成中の中止と再翻訳、PFML/入力制限の13項目。
+アドホック署名のローカル開発版です。Developer ID署名・Apple公証は未実施です。現在の同梱ライブラリに合わせ最低OSを27.2にしています。旧OSは未検証です。
 
-2B / 8B / 31Bは選択・ダウンロード機能を実装していますが、実モデルを取得しての推論確認は0.8Bのみです。他アプリの選択文取得と直接挿入はアクセシビリティ許可が必要で、この開発作業では許可設定を変更していません。ログイン時起動も未有効化・未検証です。グローバルショートカットは登録処理を実装済みですが、自動操作環境ではキーイベントの到達を確認できていません。通常のキーボードでの⌥⌘Tの確認が残っています。
+## 参照とライセンス
 
-この成果物はローカル開発用のアドホック署名です。別のMacへの一般配布向けDeveloper ID署名・Apple公証は行っていません。
-
-## 公式資料
-
-- [PLaMo 3 Translate GGUF](https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF)
-- [PFNの技術解説](https://www.preferred.jp/ja/blog/tech/plamo-3-translate-weight-release)
+- [公式MLXモデルを含むコレクション](https://huggingface.co/collections/pfnet/plamo-3-translate)
+- [Windows版・共通Chrome拡張の元リポジトリ](https://github.com/tkiikt/MyPLaMo)
 - [PLaMo Community License](https://plamo.preferredai.jp/info/plamo-community-license-ja)
 
-`model-reference.md` は実装時に参照した公式モデルカードです。推論エンジンのライセンスはアプリ内の `Contents/Resources/engine/Licenses` に格納しています。
+アプリと拡張のライセンスは `LICENSE-MIT`、モデル利用条件は `Resources/PLaMo-LICENSE-ja.txt` を参照してください。ランタイムのライセンスはアプリ内 `Contents/Resources/runtime/Licenses` と各依存パッケージのdist-infoに同梱しています。`model-reference.md` は旧GGUF版開発時の参考資料です。

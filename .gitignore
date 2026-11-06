@@ -3,3 +3,8 @@ dist/
 Models/
 .DS_Store
 *.log
+
+.venv/
+ModelsMLX/
+__pycache__/
+*.pyc
