@@ -33,10 +33,19 @@ with tempfile.TemporaryDirectory(prefix='myplamo-dmg-') as temp:
         'background': str(root / 'Distribution/dmg-background.png'),
         'window_rect': ((200, 200), (680, 520)),
         'default_view': 'icon-view', 'icon_size': 80, 'text_size': 13,
-        'hide_extensions': ['MyPLaMo for Mac.app'],
         'show_toolbar': False, 'show_status_bar': False, 'show_sidebar': False,
         'show_pathbar': False, 'show_tab_view': False,
     })
     subprocess.run(['hdiutil', 'verify', str(pending)], check=True)
+    mount = stage / 'verify'
+    mount.mkdir()
+    subprocess.run(['hdiutil', 'attach', '-readonly', '-nobrowse', '-mountpoint', str(mount), str(pending)], check=True, stdout=subprocess.DEVNULL)
+    try:
+        subprocess.run(['codesign', '--verify', '--deep', '--strict', str(mount / app.name)], check=True)
+        assert (mount / 'Applications').is_symlink()
+        assert (mount / 'Applications').resolve() == Path('/Applications')
+        assert (mount / docs.name / 'Licenses/PACKAGES.txt').is_file()
+    finally:
+        subprocess.run(['hdiutil', 'detach', str(mount)], check=True, stdout=subprocess.DEVNULL)
     pending.replace(output)
 print(output)
