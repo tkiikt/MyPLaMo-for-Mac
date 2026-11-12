@@ -2,6 +2,51 @@ import Foundation
 import Network
 import CryptoKit
 import Combine
+import CoreFoundation
+
+/// A validated browser request. UI preferences are deliberately not consulted here.
+struct ChromeTranslationRequest {
+    let text: String
+    let source: String?
+    let target: String
+    let style: String?
+    let glossaryID: String?
+    let context: String
+
+    init(json: [String: Any]) throws {
+        func field(_ name: String, default fallback: String = "") throws -> String {
+            guard let value = json[name] else { return fallback }
+            guard let text = value as? String else { throw ChromeRequestError.message("\(name)の形式を確認してください。") }
+            return text
+        }
+        text = try field("text")
+        let from = try field("from")
+        source = from.isEmpty ? nil : from
+        target = try field("to", default: "ja")
+        let form = try field("style", default: "polite")
+        style = form.isEmpty ? nil : form
+        let glossary = try field("glossaryId")
+        glossaryID = glossary.isEmpty ? nil : glossary
+        context = try field("context")
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.utf16.count <= 2000 else {
+            throw ChromeRequestError.message("文章を短くしてください（最大2,000文字）。")
+        }
+        guard context.utf16.count <= 1200 else { throw ChromeRequestError.message("参照する文脈が長すぎます（最大1,200文字）。") }
+        guard PromptBuilder.languageCodes.contains(target), source == nil || PromptBuilder.languageCodes.contains(source!) else {
+            throw ChromeRequestError.message("対応していない言語が選択されています。")
+        }
+        guard source != target else { throw ChromeRequestError.message("翻訳元と翻訳先は異なる言語を選んでください。") }
+        guard style == nil || ["plain", "polite"].contains(style!) else { throw ChromeRequestError.message("文体の指定を確認してください。") }
+        guard ![text, context, glossary].contains(where: { $0.contains("<|plamo:") }) else {
+            throw ChromeRequestError.message("入力にモデルの制御記号が含まれています。")
+        }
+    }
+}
+
+private enum ChromeRequestError: LocalizedError {
+    case message(String)
+    var errorDescription: String? { if case .message(let message) = self { return message }; return nil }
+}
 
 /// Wire-compatible with the Windows MyPLaMo Chrome bridge.
 /// The listener deliberately binds IPv4 loopback, never all interfaces.
@@ -14,7 +59,7 @@ import Combine
     private var generation = UUID()
     static let origin = "chrome-extension://oefekpcnnmijlldkpeplijencgdnakbb"
 
-    func start(translate: @escaping (String) async throws -> String) {
+    func start(metadata: @escaping () throws -> [String: Any], translate: @escaping (ChromeTranslationRequest) async throws -> String) {
         guard listener == nil else { return }
         error = nil; status = "Chrome連携を開始中…"
         let token = UUID(); generation = token
@@ -40,7 +85,7 @@ import Combine
                 Task { @MainActor in
                     guard let self, self.generation == token, self.clients.count < 8 else { connection.cancel(); return }
                     let id = UUID()
-                    let client = ChromeBridgeClient(connection: connection, translate: translate) { [weak self] in self?.clients[id] = nil }
+                    let client = ChromeBridgeClient(connection: connection, metadata: metadata, translate: translate) { [weak self] in self?.clients[id] = nil }
                     self.clients[id] = client; client.start()
                 }
             }
@@ -60,7 +105,8 @@ import Combine
 /// masked text/continuation, ping/pong, and close. HTTP is never exposed as an API.
 @MainActor private final class ChromeBridgeClient {
     let connection: NWConnection
-    let translate: (String) async throws -> String
+    let translate: (ChromeTranslationRequest) async throws -> String
+    let metadata: () throws -> [String: Any]
     let onClose: () -> Void
     var buffer = Data()
     var fragmented = Data()
@@ -73,8 +119,8 @@ import Combine
     var timeout: Task<Void, Never>?
     var heartbeat: Task<Void, Never>?
 
-    init(connection: NWConnection, translate: @escaping (String) async throws -> String, onClose: @escaping () -> Void) {
-        self.connection = connection; self.translate = translate; self.onClose = onClose
+    init(connection: NWConnection, metadata: @escaping () throws -> [String: Any], translate: @escaping (ChromeTranslationRequest) async throws -> String, onClose: @escaping () -> Void) {
+        self.connection = connection; self.metadata = metadata; self.translate = translate; self.onClose = onClose
     }
     func start() {
         connection.stateUpdateHandler = { [weak self] state in
@@ -176,15 +222,30 @@ import Combine
     }
     func handle(_ data: Data) {
         requested = true
-        guard String(data: data, encoding: .utf8) != nil,
-              let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let text = request["text"] as? String,
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              text.utf16.count <= 2000 else {
-            sendJSON(["error": "文章を短くしてください（最大2,000文字）。"], final: true); return
-        }
-        if let version = request["protocolVersion"], (version as? Int) != 1 {
-            sendJSON(["error": "本体と拡張機能の通信バージョンが対応していません。両方を更新してください。"], final: true); return
+        let translationRequest: ChromeTranslationRequest
+        do {
+            guard String(data: data, encoding: .utf8) != nil,
+                  let request = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw ChromeRequestError.message("正しいJSONオブジェクトを送信してください。")
+            }
+            if let value = request["protocolVersion"] {
+                guard let version = value as? NSNumber,
+                      CFGetTypeID(version) != CFBooleanGetTypeID(),
+                      !["d", "f"].contains(String(cString: version.objCType)), version.intValue == 1 else {
+                    throw ChromeRequestError.message("本体と拡張機能の通信バージョンが対応していません。両方を更新してください。")
+                }
+            }
+            if let action = request["action"] {
+                guard let name = action as? String, name == "metadata" else {
+                    throw ChromeRequestError.message("対応していない操作です。")
+                }
+                sendJSON(try metadata(), final: true)
+                return
+            }
+            translationRequest = try ChromeTranslationRequest(json: request)
+        } catch {
+            sendJSON(["error": error.localizedDescription], final: true)
+            return
         }
         setTimeout(seconds: 480)
         heartbeat = Task { [weak self] in
@@ -197,7 +258,7 @@ import Combine
         work = Task { [weak self] in
             guard let self else { return }
             do {
-                let result = try await self.translate(text)
+                let result = try await self.translate(translationRequest)
                 try Task.checkCancellation()
                 self.sendJSON(["translation": result], final: true)
             } catch {
@@ -207,7 +268,7 @@ import Combine
     }
     func sendJSON(_ object: [String: Any], final: Bool = false) {
         var reply = object
-        reply["server"] = ["platform": "macos", "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.1", "protocolVersion": 1]
+        reply["server"] = ["platform": "macos", "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.0", "protocolVersion": 1, "capabilities": ["options", "glossaries", "context"]]
         guard !stopped, let data = try? JSONSerialization.data(withJSONObject: reply) else { return }
         if final { heartbeat?.cancel(); timeout?.cancel() }
         sendFrame(data, opcode: 1) { [weak self] in if final { self?.close(code: 1000) } }
