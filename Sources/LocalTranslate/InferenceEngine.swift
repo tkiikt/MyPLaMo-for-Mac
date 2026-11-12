@@ -14,31 +14,67 @@ enum TranslationError: LocalizedError {
     }
 }
 
+struct TranslationPair: Equatable {
+    let source: String
+    let target: String
+}
+
 struct PromptBuilder {
     static let maximumCharacters = 6000
     static let languageCodes: Set<String> = Set("ja en zh-hans zh-hant ko ar az be bg bn ca ceb de es et eu fa fr gu he hi hr hu hy id it jv ka kk km lt lv ml mr ms my ne nl pa pl ru si sk sl sr sw ta te th tl ur uz vi".split(separator: " ").map(String.init))
 
-    static func make(text: String, source: String? = nil, target: String, style: String? = nil) throws -> String {
+    static func validateContent(_ text: String) throws {
+        guard !text.contains("<|plamo:") else {
+            throw TranslationError.invalidInput("文章・文脈・用語にモデルの制御記号が含まれています。記号を取り除いてください。")
+        }
+    }
+    static func prefixUTF16(_ text: String, limit: Int) -> String {
+        var result = "", length = 0
+        for character in text {
+            let value = String(character), count = value.utf16.count
+            if length + count > limit { break }
+            result += value; length += count
+        }
+        return result
+    }
+    static func validateOptions(source: String?, target: String, style: String?) throws {
+        guard languageCodes.contains(target), source == nil || languageCodes.contains(source!), source != target else {
+            throw TranslationError.invalidInput("対応する異なる翻訳元・翻訳先の言語を選択してください。")
+        }
+        guard style == nil || ["", "plain", "polite"].contains(style!) else {
+            throw TranslationError.invalidInput("文体の指定を確認してください。")
+        }
+    }
+    static func make(text: String, source: String? = nil, target: String, style: String? = nil,
+                     context: String = "", glossary: [GlossaryTerm] = [], history: [TranslationPair] = []) throws -> String {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw TranslationError.invalidInput("翻訳する文章を入力してください。")
         }
         guard text.count <= maximumCharacters else {
             throw TranslationError.invalidInput("一度に翻訳できる原文は \(maximumCharacters) 文字までです。文章を分けてください。")
         }
-        guard languageCodes.contains(target), source == nil || languageCodes.contains(source!) else {
-            throw TranslationError.invalidInput("対応していない言語が選択されています。")
+        try validateOptions(source: source, target: target, style: style)
+        try validateContent(text); try validateContent(context)
+        for pair in history { try validateContent(pair.source); try validateContent(pair.target) }
+        for term in glossary { try validateContent(term.source); try validateContent(term.target) }
+        let terms = try GlossaryStore.matchingTerms(glossary, text: text, source: source, target: target)
+        func input(_ value: String) -> String {
+            "<|plamo:tag|>input" + (source.map { "<|plamo:key|>lang<|plamo:val|>" + $0 } ?? "") + "<|plamo:msg|>" + value
         }
-        guard style == nil || ["plain", "polite"].contains(style!) else {
-            throw TranslationError.invalidInput("文体の指定を確認してください。")
+        func output(_ value: String) -> String {
+            "<|plamo:tag|>output<|plamo:key|>lang<|plamo:val|>" + target + "<|plamo:msg|>" + value
         }
-        // Do not allow source text to introduce PFML control elements.
-        guard !text.contains("<|plamo:") else {
-            throw TranslationError.invalidInput("原文にモデルの制御記号が含まれています。記号を取り除いてください。")
+        var prompt = "<|plamo:tag|>dataset<|plamo:msg|>translation"
+        if !context.isEmpty { prompt += "<|plamo:tag|>context<|plamo:msg|>" + prefixUTF16(context, limit: 1200) }
+        var recent = Array(history.suffix(2))
+        while recent.reduce(0, { $0 + $1.source.utf16.count + $1.target.utf16.count }) > 1600 { recent.removeFirst() }
+        for pair in recent { prompt += input(pair.source) + output(pair.target) }
+        if !terms.isEmpty {
+            prompt += "<|plamo:tag|>glossary"
+            for term in terms { prompt += "<|plamo:index|>" + term.source + "<|plamo:item|>" + term.target }
         }
-        var prompt = "<|plamo:tag|>dataset<|plamo:msg|>translation<|plamo:tag|>input"
-        if let source { prompt += "<|plamo:key|>lang<|plamo:val|>\(source)" }
-        prompt += "<|plamo:msg|>\(text)<|plamo:tag|>output<|plamo:key|>lang<|plamo:val|>\(target)"
-        if target == "ja", let style { prompt += "<|plamo:key|>form<|plamo:val|>\(style)" }
+        prompt += input(text) + "<|plamo:tag|>output<|plamo:key|>lang<|plamo:val|>" + target
+        if target == "ja", let style, !style.isEmpty { prompt += "<|plamo:key|>form<|plamo:val|>" + style }
         return prompt + "<|plamo:msg|>"
     }
 }
@@ -60,10 +96,10 @@ struct PromptBuilder {
     private var diagnosticURL: URL?
     private var activeGPU = true
 
-    func translate(text: String, source: String? = nil, target: String, style: String? = nil, modelURL: URL, useGPU: Bool) async throws -> String {
+    func translate(text: String, source: String? = nil, target: String, style: String? = nil, modelURL: URL, useGPU: Bool, context: String = "", glossary: [GlossaryTerm] = [], history: [TranslationPair] = []) async throws -> String {
         guard !isBusy else { throw TranslationError.invalidInput("翻訳が終わるまでお待ちください。") }
         try Task.checkCancellation()
-        let prompt = try PromptBuilder.make(text: text, source: source, target: target, style: style)
+        let prompt = try PromptBuilder.make(text: text, source: source, target: target, style: style, context: context, glossary: glossary, history: history)
         guard FileManager.default.fileExists(atPath: modelURL.appendingPathComponent(".myplamo-verified.json").path) else {
             throw TranslationError.invalidInput("MLXモデル一式をモデル画面で検証・ダウンロードしてください。GGUFモデルは使用できません。")
         }

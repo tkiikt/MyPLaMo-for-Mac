@@ -17,8 +17,6 @@ struct HistoryEntry: Codable, Identifiable {
     @Published var desktopBusy = false
     @Published var chromeEnabled = false
     let bridge = ChromeBridge()
-    private var desktopActive = false
-    private var outputSubscription: AnyCancellable?
     lazy var queue = TranslationQueue(engine: engine)
     @Published var source = "auto"
     @Published var target = UserDefaults.standard.string(forKey: "target") ?? "ja" { didSet { UserDefaults.standard.set(target, forKey: "target") } }
@@ -28,6 +26,12 @@ struct HistoryEntry: Codable, Identifiable {
     @Published var showSettings = false
     @Published var showModels = false
     @Published var showHistory = false
+    @Published var showGlossaries = false
+    @Published var documentFormat: DocumentFormat = .automatic
+    @Published var referenceContext = ""
+    @Published var useContext = (UserDefaults.standard.object(forKey: "useContext") as? Bool) ?? true { didSet { UserDefaults.standard.set(useContext, forKey: "useContext") } }
+    @Published var progress = ""
+    let glossaries = GlossaryStore()
     @Published var useGPU = (UserDefaults.standard.object(forKey: "useGPU") as? Bool) ?? true { didSet { UserDefaults.standard.set(useGPU, forKey: "useGPU") } }
     @Published var saveHistory = UserDefaults.standard.bool(forKey: "saveHistory")
     let models = ModelManager()
@@ -36,22 +40,28 @@ struct HistoryEntry: Codable, Identifiable {
     var originApp: NSRunningApplication?
     let historyURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("LocalTranslate/history.json")
     init() {
-        outputSubscription = engine.$output.sink { [weak self] value in
-            guard let self, self.desktopActive else { return }; self.output = value
-        }
         if saveHistory, let data = try? Data(contentsOf: historyURL), let items = try? JSONDecoder().decode([HistoryEntry].self, from: data) { history = items }
     }
     func translate() {
         guard !desktopBusy else { return }
         guard let url = models.selectedModelURL else { showModels = true; message = "モデルをダウンロードまたは選択してください。"; return }
         let text = input, destination = target, origin = source, form = style, gpu = useGPU
-        message = ""
+        let format = documentFormat, contextual = useContext
+        let reference = contextual ? referenceContext : ""
+        let terms: [GlossaryTerm]
+        do {
+            guard reference.utf16.count <= 800 else { throw TranslationError.invalidInput("参照する文脈は800文字以内で入力してください。") }
+            terms = try glossaries.resolve(glossaries.selectedID)
+        } catch { message = error.localizedDescription; return }
+        message = ""; progress = "翻訳を準備中…"
         UserDefaults.standard.set(target, forKey: "target")
         desktopBusy = true
         translationTask = Task {
-            defer { desktopActive = false; desktopBusy = false }
+            defer { desktopBusy = false; progress = "" }
             do {
-                let result = try await queue.run(text: text, source: origin == "auto" ? nil : origin, target: destination, style: form, modelURL: url, useGPU: gpu, onStart: { self.desktopActive = true; self.output = "" })
+                let result = try await queue.run(text: text, source: origin == "auto" ? nil : origin, target: destination, style: form, modelURL: url, useGPU: gpu, context: reference, glossary: terms, useContext: contextual, format: format,
+                    onProgress: { done, total in self.progress = total == 0 ? "文書を確認中…" : "翻訳中 \(done) / \(total)" },
+                    onPartial: { self.output = $0 }, onStart: { self.output = "" })
                 output = result
                 if saveHistory {
                     history.insert(HistoryEntry(source: text, translation: result, target: destination), at: 0)
@@ -65,11 +75,22 @@ struct HistoryEntry: Codable, Identifiable {
     func setChromeEnabled(_ enabled: Bool) {
         chromeEnabled = enabled
         if enabled {
-            bridge.start { [weak self] text in
+            bridge.start(metadata: { [weak self] in
+                guard let self else { throw CancellationError() }
+                return [
+                    "glossaries": self.glossaries.items.map { ["id": $0.id, "name": $0.name, "count": $0.terms.count] as [String: Any] },
+                    "glossaryRevision": self.glossaries.revision,
+                    "glossaryError": self.glossaries.error ?? "",
+                    "modelId": self.models.selectedID,
+                    "languages": languages.map { ["id": $0.0, "name": $0.1] }
+                ]
+            }, translate: { [weak self] request in
                 guard let self, self.chromeEnabled else { throw CancellationError() }
                 guard let url = self.models.selectedModelURL else { throw TranslationError.invalidInput("MyPLaMo for MacでMLXモデルを準備してください。") }
-                return try await self.queue.run(text: text, source: nil, target: "ja", style: self.style, modelURL: url, useGPU: self.useGPU)
-            }
+                let terms = try self.glossaries.resolve(request.glossaryID ?? "")
+                return try await self.queue.run(text: request.text, source: request.source, target: request.target, style: request.style,
+                    modelURL: url, useGPU: self.useGPU, context: request.context, glossary: terms, useContext: true)
+            })
         } else { bridge.stop() }
     }
     func paste() { input = NSPasteboard.general.string(forType: .string) ?? "" }

@@ -39,9 +39,9 @@ import ServiceManagement
         NSApp.mainMenu = menu
         let appearance = UserDefaults.standard.string(forKey: "appearance") ?? "system"
         NSApp.appearance = appearance == "system" ? nil : NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 680), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "MyPLaMo for Mac"
-        window.minSize = NSSize(width: 820, height: 540)
+        window.minSize = NSSize(width: 820, height: 640)
         window.contentView = NSHostingView(rootView: MainView(state: state, models: state.models, engine: state.engine, integration: integration))
         window.isReleasedWhenClosed = false
         window.center(); self.window = window

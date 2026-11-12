@@ -10,14 +10,18 @@ struct MainView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Image(systemName: "character.bubble.fill").font(.title).foregroundStyle(.teal)
+                Image(nsImage: NSApplication.shared.applicationIconImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 36, height: 36)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("MyPLaMo for Mac").font(.title2.bold())
                     Label("このMacだけで翻訳", systemImage: "lock.shield").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button { state.showHistory.toggle() } label: { Label("履歴", systemImage: "clock.arrow.circlepath") }
-                Button { state.showModels = true } label: { Label("モデル", systemImage: "externaldrive") }.disabled(engine.isBusy)
+                Button { state.showModels = true } label: { Label("モデル", systemImage: "externaldrive") }.disabled(engine.isBusy || state.desktopBusy)
                 Button { state.showSettings = true } label: { Image(systemName: "gearshape") }.help("設定")
             }.padding(22)
             HStack {
@@ -34,6 +38,8 @@ struct MainView: View {
                     .disabled(engine.isBusy || state.output.isEmpty)
                 languagePicker("翻訳先", selection: $state.target, automatic: false)
             }.padding(.horizontal, 24).padding(.vertical, 18)
+            TranslationOptionsView(state: state, glossaries: state.glossaries)
+                .padding(.horizontal, 24).padding(.bottom, 12)
             HSplitView {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack { Text("原文").font(.headline); Spacer(); Button("貼り付け") { state.paste() }; Button("クリア") { state.input = "" } }
@@ -60,7 +66,7 @@ struct MainView: View {
                 Circle().fill(models.selectedModelURL == nil ? Color.orange : Color.teal).frame(width: 7, height: 7)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(models.selectedModelURL == nil ? "モデルを選択して始めましょう" : "PLaMo 3 Translate · \(models.selectedID.uppercased()) · MLX · \(state.useGPU ? "Apple GPU" : "CPU")").font(.caption)
-                    Text(engine.status).font(.caption).foregroundStyle(.secondary)
+                    Text(state.desktopBusy ? state.progress : engine.status).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if state.desktopBusy {
@@ -80,6 +86,7 @@ struct MainView: View {
         .sheet(isPresented: $state.showSettings) { VStack { HStack { Text("設定").font(.title2.bold()); Spacer(); Button("閉じる") { state.showSettings = false } }.padding(); AppSettings(state: state, integration: integration) } }
         .sheet(isPresented: $state.showModels) { ModelView(models: models) }
         .sheet(isPresented: $state.showHistory) { historyView }
+        .sheet(isPresented: $state.showGlossaries) { GlossaryView(store: state.glossaries) }
         .confirmationDialog("\(state.originApp?.localizedName ?? "元のアプリ")に訳文を貼り付けますか？", isPresented: $confirmInsert) {
             Button("貼り付ける") {
                 guard let app = state.originApp else { return }
@@ -120,5 +127,38 @@ struct ChromeStatusView: View {
     var body: some View {
         if let error = bridge.error { Text(error).font(.caption).foregroundStyle(.red).padding(.horizontal, 22).padding(.bottom, 8) }
         else if bridge.isRunning { Text(bridge.status).font(.caption).foregroundStyle(.secondary).padding(.bottom, 8) }
+    }
+}
+
+
+struct TranslationOptionsView: View {
+    @ObservedObject var state: AppState
+    @ObservedObject var glossaries: GlossaryStore
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 16) {
+                Picker("形式", selection: $state.documentFormat) {
+                    Text("自動判定").tag(DocumentFormat.automatic)
+                    Text("テキスト").tag(DocumentFormat.text)
+                    Text("Markdown").tag(DocumentFormat.markdown)
+                    Text("JSON").tag(DocumentFormat.json)
+                    Text("YAML").tag(DocumentFormat.yaml)
+                }.frame(maxWidth: 240)
+                Picker("用語集", selection: $glossaries.selectedID) {
+                    Text("用語集なし").tag("")
+                    ForEach(glossaries.items) { item in Text(item.name).tag(item.id) }
+                    if !glossaries.selectedID.isEmpty && !glossaries.items.contains(where: { $0.id == glossaries.selectedID }) {
+                        Text("選択した用語集が見つかりません").tag(glossaries.selectedID)
+                    }
+                }.frame(maxWidth: .infinity)
+                Button("用語集を管理…") { state.showGlossaries = true }
+            }.disabled(state.desktopBusy)
+            HStack {
+                Toggle("文脈を考慮", isOn: $state.useContext).toggleStyle(.checkbox)
+                TextField("参照する文脈（任意・800文字まで）", text: $state.referenceContext)
+                    .textFieldStyle(.roundedBorder).disabled(!state.useContext)
+            }.disabled(state.desktopBusy)
+            if let error = glossaries.error { Text(error).font(.caption).foregroundStyle(.red) }
+        }
     }
 }
