@@ -8,9 +8,13 @@ MyPLaMoの自作部分には、同梱の `LICENSE.txt` に記載したMIT Licens
 
 ## PLaMoモデル
 
-PLaMo 3 TranslateはPreferred Networksが提供するモデルです。モデルの利用条件は `Licenses/PLaMo-Community-License-ja.txt`（日本語）および `Licenses/PLaMo-Community-License-en.txt`（英語）を参照してください。
+PLaMo 3 TranslateはPreferred Networksが提供するモデルです。利用条件・改訂情報は公式規約をご確認ください。
 
-モデルの重みはこのZIPには含まれていません。アプリから別途取得するモデルには、取得元のモデルに付属するライセンスが適用されます。
+https://plamo.preferredai.jp/info/plamo-community-license-ja
+
+モデルの重み・モデル固有コード・トークナイザーはこのZIPには含まれていません。モデルはアプリから別途取得します。取得したモデルに付属するライセンス・著作権表示も保持してください。
+
+`PLaMo-MODEL-LICENSE.md` に公式URLと配布対象の区別を記載しています。モデル又は派生モデルそのものを再配布する際の規約コピー提供義務は、このURL案内で代替するものではありません。
 
 公式配布元：https://huggingface.co/collections/pfnet/plamo-3-translate
 

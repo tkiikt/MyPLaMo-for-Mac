@@ -144,11 +144,11 @@ struct TranslationOptionsView: View {
                     Text("JSON").tag(DocumentFormat.json)
                     Text("YAML").tag(DocumentFormat.yaml)
                 }.frame(maxWidth: 240)
-                Picker("用語集", selection: $glossaries.selectedID) {
-                    Text("用語集なし").tag("")
-                    ForEach(glossaries.items) { item in Text(item.name).tag(item.id) }
-                    if !glossaries.selectedID.isEmpty && !glossaries.items.contains(where: { $0.id == glossaries.selectedID }) {
-                        Text("選択した用語集が見つかりません").tag(glossaries.selectedID)
+                Picker("用語集", selection: Binding(get: { Data(glossaries.selectedID.utf8) }, set: { glossaries.selectedID = String(decoding: $0, as: UTF8.self) })) {
+                    Text("用語集なし").tag(Data())
+                    ForEach(glossaries.items, id: \.idBytes) { item in Text(item.name).tag(item.idBytes) }
+                    if !glossaries.selectedID.isEmpty && !glossaries.items.contains(where: { $0.idBytes == Data(glossaries.selectedID.utf8) }) {
+                        Text("選択した用語集が見つかりません").tag(Data(glossaries.selectedID.utf8))
                     }
                 }.frame(maxWidth: .infinity)
                 Button("用語集を管理…") { state.showGlossaries = true }

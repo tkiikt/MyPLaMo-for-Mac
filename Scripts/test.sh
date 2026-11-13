@@ -8,9 +8,9 @@ trap 'rm -rf "$TEST_BUILD_DIR"' EXIT
 swiftc "$PROJECT_DIR/Sources/LocalTranslate/GlossaryStore.swift" "$PROJECT_DIR/Sources/LocalTranslate/InferenceEngine.swift" \
   "$PROJECT_DIR/Tests/PromptSmoke.swift" -o "$TEST_BUILD_DIR/prompt-smoke"
 "$TEST_BUILD_DIR/prompt-smoke"
-for name in GlossarySmoke PromptFeaturesSmoke; do
+for name in GlossarySmoke PromptFeaturesSmoke GlossaryRestoreSmoke GlossaryBackupSmoke; do
   swiftc "$PROJECT_DIR/Sources/LocalTranslate/GlossaryStore.swift" "$PROJECT_DIR/Sources/LocalTranslate/InferenceEngine.swift" \
-    "$PROJECT_DIR/Tests/$name.swift" -o "$TEST_BUILD_DIR/$name"
+    "$PROJECT_DIR/Sources/LocalTranslate/GlossaryBackup.swift" "$PROJECT_DIR/Tests/$name.swift" -o "$TEST_BUILD_DIR/$name"
   "$TEST_BUILD_DIR/$name"
 done
 swiftc "$PROJECT_DIR/Sources/LocalTranslate/DocumentTranslation.swift" "$PROJECT_DIR/Tests/DocumentSmoke.swift" -o "$TEST_BUILD_DIR/document-smoke"
