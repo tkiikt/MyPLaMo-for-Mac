@@ -22,6 +22,7 @@ with tempfile.TemporaryDirectory(prefix='myplamo-release-') as temporary:
     shutil.copy2(root / 'Distribution/THIRD-PARTY-NOTICES.md', stage / 'THIRD-PARTY-NOTICES.md')
     shutil.copy2(root / 'chrome/README.md', stage / 'Chrome拡張の使い方.md')
     shutil.copy2(root / 'LICENSE-MIT', stage / 'LICENSE.txt')
+    shutil.copy2(root / 'Resources/PLaMo-MODEL-LICENSE.md', stage / 'PLaMo-MODEL-LICENSE.md')
     # The standalone extension guide uses the same MIT text under this name.
     shutil.copy2(root / 'LICENSE-MIT', stage / 'LICENSE-MIT')
     licenses = stage / 'Licenses'
@@ -58,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix='myplamo-release-') as temporary:
         assert z.testzip() is None, 'Archive integrity failure'
         prefix = 'MyPLaMo for Mac/'
         for required in ['README.md', 'README.txt', 'LICENSE.txt', 'THIRD-PARTY-NOTICES.md',
-                         'Licenses/PLaMo-Community-License-ja.txt', 'Licenses/PLaMo-Community-License-en.txt',
+                         'PLaMo-MODEL-LICENSE.md',
                          'Licenses/PACKAGES.txt', 'MyPLaMo for Mac.app/Contents/MacOS/MyPLaMo']:
             assert prefix + required in z.namelist(), required
         assert not any(name.endswith(('.safetensors', '.gguf')) for name in z.namelist()), 'Model unexpectedly bundled'

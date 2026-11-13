@@ -17,8 +17,8 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>MyPLaMo for Mac</string>
 <key>CFBundleIconFile</key><string>MyPLaMo</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.3.0</string>
-<key>CFBundleVersion</key><string>4</string>
+<key>CFBundleShortVersionString</key><string>0.4.0</string>
+<key>CFBundleVersion</key><string>5</string>
 <key>LSMinimumSystemVersion</key><string>27.2</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -32,7 +32,8 @@ if [ ! -x "$app/Contents/Resources/runtime/bin/python3" ]; then
   ditto .build/mlx-runtime "$app/Contents/Resources/runtime"
 fi
 if [ -f Resources/MyPLaMo.icns ]; then cp Resources/MyPLaMo.icns "$app/Contents/Resources/"; fi
-cp LICENSE-MIT Resources/PLaMo-LICENSE-ja.txt "$app/Contents/Resources/"
+rm -f "$app/Contents/Resources/PLaMo-LICENSE-ja.txt"
+cp LICENSE-MIT Resources/PLaMo-MODEL-LICENSE.md "$app/Contents/Resources/"
 if [ -f README.md ]; then cp README.md "$app/Contents/Resources/README.md"; fi
 codesign --force --deep --sign - "$app"
 codesign --verify --deep --strict "$app"

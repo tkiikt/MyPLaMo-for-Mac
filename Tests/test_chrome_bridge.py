@@ -61,7 +61,7 @@ if __name__=='__main__':
     replies=request('slow'); assert replies[0]['working'] is True; assert replies[-1]['translation']=='訳:slow'
     print('PASS heartbeat and response')
 
-    assert request('Hello')[-1]['server']=={'platform':'macos','appVersion':'0.3.0','protocolVersion':1,'capabilities':['options','glossaries','context']}
+    assert request('Hello')[-1]['server']=={'platform':'macos','appVersion':'0.4.0','protocolVersion':1,'capabilities':['options','glossaries','context']}
     for version in [1, 2]:
         s,h=connect(); send(s,json.dumps({'text':'Hello','protocolVersion':version}))
         reply=json.loads(receive(s)[1]); s.close()

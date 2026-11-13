@@ -268,7 +268,7 @@ private enum ChromeRequestError: LocalizedError {
     }
     func sendJSON(_ object: [String: Any], final: Bool = false) {
         var reply = object
-        reply["server"] = ["platform": "macos", "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.0", "protocolVersion": 1, "capabilities": ["options", "glossaries", "context"]]
+        reply["server"] = ["platform": "macos", "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.4.0", "protocolVersion": 1, "capabilities": ["options", "glossaries", "context"]]
         guard !stopped, let data = try? JSONSerialization.data(withJSONObject: reply) else { return }
         if final { heartbeat?.cancel(); timeout?.cancel() }
         sendFrame(data, opcode: 1) { [weak self] in if final { self?.close(code: 1000) } }
